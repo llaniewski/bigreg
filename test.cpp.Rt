@@ -1,0 +1,61 @@
+<?R
+	n = 300
+	v = sprintf("x%03d",1:n)
+?>
+
+#include <hip/hip_runtime.h>
+
+__device__ __host__ double fun(const double& x) {
+    return floor(x)*2;
+}
+
+__device__ __host__ double bigreg(const double& val) {
+    double <?%s v[1] ?> = val; <?R
+	for (i in 2:n) { ?>
+    double <?%s v[i] ?> = fun(<?%s v[i-1] ?>); <?R
+	}
+	for (i in n:2) { ?>
+    <?%s v[i-1] ?> = fun(<?%s v[i-1] ?> + <?%s v[i] ?>); <?R
+	} ?>
+    return <?%s v[1] ?>;
+}
+
+__global__ void runbigreg(double* array1,double* array2) {
+    int j = threadIdx.x + blockIdx.x * blockDim.x;
+    double val = array1[j]; 
+    array2[j] = bigreg(val);
+}
+
+#include <vector>
+
+void handle_error( hipError_t err, const char *file, int line ) {
+    if (err != hipSuccess) {
+        printf("%s in %s at line %d\n", hipGetErrorString( err ), file, line );
+        exit(-1);
+    }
+}
+#define HANDLE_ERROR( err ) (handle_error( err, __FILE__, __LINE__ ))
+
+int main () {
+    int N = 1024;
+    std::vector<double> vec(N);
+    std::vector<double> cpures(N);
+    std::vector<double> gpures(N);
+    for (int i=0; i<vec.size(); i++) vec[i] = 3.14*i;
+    for (int i=0; i<vec.size(); i++) cpures[i] = bigreg(vec[i]);
+    size_t size = N*sizeof(double);
+    double *gpuvec, *res;
+    hipMalloc(&gpuvec, size);
+    hipMalloc(&res, size);
+    hipMemcpy(gpuvec, vec.data(), size, hipMemcpyHostToDevice);
+    int threads = 64;
+    int blocks = N/threads;
+    runbigreg<<<blocks,threads>>>(gpuvec,res);
+    hipMemcpy(gpures.data(), res, size, hipMemcpyDeviceToHost);
+    double diff=0;
+    for (int i=0; i<vec.size(); i++) diff += abs(cpures[i] - gpures[i]);
+    printf("Diff: %lg\n", diff);
+    HANDLE_ERROR( hipDeviceSynchronize());
+    HANDLE_ERROR( hipGetLastError() );
+    hipFree(gpuvec);
+}
