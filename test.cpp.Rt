@@ -6,7 +6,7 @@
 #include <hip/hip_runtime.h>
 
 __device__ __host__ double fun(const double& x) {
-    return floor(x)*2;
+    return (x-floor(x))*2;
 }
 
 __device__ __host__ double bigreg(const double& val) {

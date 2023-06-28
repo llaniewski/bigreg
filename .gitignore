@@ -1,0 +1,8 @@
+*~
+slurm-*
+*hip-amdgcn*
+*host-x86_64*
+test.cpp
+*.o
+main
+results.*
