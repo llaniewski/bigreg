@@ -20,10 +20,12 @@ __device__ __host__ double bigreg(const double& val) {
     return <?%s v[1] ?>;
 }
 
-__global__ void runbigreg(double* array1,double* array2) {
+__global__ void runbigreg(double* array1,double* array2, int N) {
     int j = threadIdx.x + blockIdx.x * blockDim.x;
-    double val = array1[j]; 
-    array2[j] = bigreg(val);
+    if (j < N) {
+        double val = array1[j]; 
+        array2[j] = bigreg(val);
+    }
 }
 
 #include <vector>
@@ -37,7 +39,7 @@ void handle_error( hipError_t err, const char *file, int line ) {
 #define HANDLE_ERROR( err ) (handle_error( err, __FILE__, __LINE__ ))
 
 int main () {
-    int N = 1024;
+    int N = 1024*1024;
     std::vector<double> vec(N);
     std::vector<double> cpures(N);
     std::vector<double> gpures(N);
@@ -48,9 +50,19 @@ int main () {
     hipMalloc(&gpuvec, size);
     hipMalloc(&res, size);
     hipMemcpy(gpuvec, vec.data(), size, hipMemcpyHostToDevice);
-    int threads = 64;
+
+    hipFuncAttributes * attr = new hipFuncAttributes;
+    hipFuncGetAttributes(attr, reinterpret_cast<const void*>(runbigreg)) ;
+    printf( "Constant mem:%ld\n", attr->constSizeBytes);
+    printf( "Local    mem:%ld\n", attr->localSizeBytes);
+    printf( "Max  threads:%d\n",  attr->maxThreadsPerBlock);
+    printf( "Reg   Number:%d\n",  attr->numRegs);
+    printf( "Shared   mem:%ld\n", attr->sharedSizeBytes);
+
+    int threads = attr->maxThreadsPerBlock;
     int blocks = N/threads;
-    runbigreg<<<blocks,threads>>>(gpuvec,res);
+
+    runbigreg<<<blocks,threads>>>(gpuvec,res,N);
     hipMemcpy(gpures.data(), res, size, hipMemcpyDeviceToHost);
     double diff=0;
     for (int i=0; i<vec.size(); i++) diff += abs(cpures[i] - gpures[i]);
